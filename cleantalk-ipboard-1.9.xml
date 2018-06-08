@@ -1,0 +1,1203 @@
+<?xml version="1.0" encoding="utf-8"?>
+<hookexport>
+  <hookdata>
+    <config>
+      <hook_name>CleanTalk</hook_name>
+      <hook_desc><![CDATA[CleanTalk automoderation &amp; spam protection]]></hook_desc>
+      <hook_author>CleanTalk team</hook_author>
+      <hook_email>welcome@cleantalk.org</hook_email>
+      <hook_website>https://cleantalk.org</hook_website>
+      <hook_update_check>http://download.cleantalk.org/ipboard/update_checker.php?</hook_update_check>
+      <hook_requirements><![CDATA[a:3:{s:21:"required_applications";a:1:{s:4:"core";a:3:{s:8:"app_name";s:6:"System";s:11:"min_version";i:31007;s:11:"max_version";i:0;}}s:20:"hook_php_version_min";s:0:"";s:20:"hook_php_version_max";s:0:"";}]]></hook_requirements>
+      <hook_version_human>1.9</hook_version_human>
+      <hook_version_long>1900</hook_version_long>
+      <hook_extra_data><![CDATA[a:4:{s:7:"display";a:1:{s:6:"custom";s:20:"cleantalkLibrary.php";}s:13:"settingGroups";a:1:{i:0;s:9:"cleantalk";}s:8:"settings";a:4:{i:0;s:18:"cleantalk_auth_key";i:1;s:17:"cleantalk_enabled";i:2;s:19:"cleantalk_min_posts";i:3;s:28:"cleantalk_moderate_new_guest";}s:8:"database";a:2:{s:6:"create";a:3:{i:0;a:3:{s:4:"name";s:20:"cleantalk_timelabels";s:6:"fields";s:59:"ct_key varchar(255), ct_value int(11), PRIMARY KEY (ct_key)";s:9:"tabletype";s:6:"myisam";}i:1;a:3:{s:4:"name";s:16:"cleantalk_server";s:6:"fields";s:65:"work_url varchar(255), server_ttl int(11), server_changed int(11)";s:9:"tabletype";s:6:"myisam";}i:2;a:3:{s:4:"name";s:18:"cleantalk_settings";s:6:"fields";s:64:"ct_key varchar(255), ct_value varchar(255), PRIMARY KEY (ct_key)";s:9:"tabletype";s:6:"myisam";}}s:6:"insert";a:1:{i:0;a:3:{s:5:"table";s:18:"cleantalk_settings";s:7:"updates";s:24:"ct_key=posts, ct_value=3";s:9:"fordelete";s:0:"";}}}}]]></hook_extra_data>
+      <hook_key>cleantalk</hook_key>
+      <hook_global_caches/>
+    </config>
+  </hookdata>
+  <hookfiles>
+    <file>
+      <hook_file_real>cleantalkSkinGlobal.php</hook_file_real>
+      <hook_type>skinHooks</hook_type>
+      <hook_classname>cleantalkSkinGlobal</hook_classname>
+      <hook_data><![CDATA[a:8:{s:12:"dataLocation";s:0:"";s:14:"libApplication";s:0:"";s:15:"classToOverload";s:11:"skin_global";s:9:"skinGroup";N;s:12:"skinFunction";N;s:4:"type";N;s:2:"id";N;s:8:"position";N;}]]></hook_data>
+      <hooks_source><![CDATA[class cleantalkSkinGlobal extends (~extends~)
+{
+    public function globalTemplate($html, $documentHeadItems, $css, $jsModules, $metaTags, array $header_items, $items=array(), $footer_items=array(), $stats=array())
+    {
+    	$IPBHTML = '';
+		if(ipsRegistry::$settings['cleantalk_enabled'] && ipsRegistry::$settings['cleantalk_show_link'])
+		{
+			$IPBHTML .= "<div style='width:100%;text-align:center'><a href='https://cleantalk.org/ipb-anti-spam-hook'>IP.Board spam</a> blocked by CleanTalk.</div>";
+		}
+		return parent::globalTemplate($html, $documentHeadItems, $css, $jsModules, $metaTags, $header_items, $items, $footer_items, $stats) . $IPBHTML;
+	}
+}]]></hooks_source>
+    </file>
+    <file>
+      <hook_file_real>cleantalkActionRegister.php</hook_file_real>
+      <hook_type>commandHooks</hook_type>
+      <hook_classname>cleantalkActionRegister</hook_classname>
+      <hook_data><![CDATA[a:8:{s:12:"dataLocation";s:0:"";s:14:"libApplication";s:0:"";s:15:"classToOverload";s:27:"public_core_global_register";s:9:"skinGroup";N;s:12:"skinFunction";N;s:4:"type";N;s:2:"id";N;s:8:"position";N;}]]></hook_data>
+      <hooks_source><![CDATA[<?php
+//------------------------------------------
+// CLEANTALK - STOP SPAMMER REGISTRATION v1.6
+// For IP.Board, by CleanTalk
+//------------------------------------------
+
+class cleantalkActionRegister extends (~extends~)
+{
+
+    public function registerProcessForm()
+    {
+
+	if(ipsRegistry::$settings['cleantalk_enabled']){
+	    require_once(IPS_HOOKS_PATH . 'cleantalk.class.php');
+
+	    session_name('cleantalksession');
+	    if (!isset($_SESSION)) {
+		session_start();
+	    }
+	    if (array_key_exists('formtime', $_SESSION)) {
+		$submit_time = time() - (int) $_SESSION['formtime'];
+	    } else {
+		$submit_time = NULL;
+	    }
+	    $_SESSION['formtime'] = time();
+
+	    $cms_lang = substr($this->lang->local, 0, 2);
+	    $post_info = '';
+	    if(function_exists('json_encode')){
+		$arr = array(
+		    'cms_lang' => $cms_lang,
+		    'REFFERRER' => $_SERVER['HTTP_REFERER'],
+		    'USER_AGENT' => $_SERVER['HTTP_USER_AGENT'],
+		);
+		$post_info = json_encode($arr);
+	    }
+	    if($post_info === FALSE) $post_info = '';
+
+	    $ct_url = 'http://moderate.cleantalk.org';
+	    $server = $this->DB->buildAndFetch( array( 
+                                                    'select' => 'work_url, server_ttl, server_changed',
+                                                    'from'   => 'cleantalk_server'
+                                                  )
+	    );
+	    $config_work_url = !empty( $server ) ? strval($server['work_url']) : $ct_url;
+	    $config_ttl = !empty( $server ) ? intval($server['server_ttl']) : 43200;
+	    $config_changed = !empty( $server ) ? intval($server['server_changed']) : 1349162987;
+
+	    $config_key = empty(ipsRegistry::$settings['cleantalk_auth_key']) ? 'enter key' : ipsRegistry::$settings['cleantalk_auth_key'];
+
+	    $ct = new Cleantalk();
+	    $ct->work_url = $config_work_url;
+	    $ct->server_url = $ct_url;
+	    $ct->server_ttl = $config_ttl;
+	    $ct->server_changed = $config_changed;
+
+	    $sender_email = filter_var($this->request['EmailAddress'], FILTER_SANITIZE_EMAIL);
+	    $sender_ip = $ct->ct_session_ip($this->member->ip_address);
+
+	    $ct_request = new CleantalkRequest();
+	    $ct_request->auth_key = $config_key;
+	    if(array_key_exists('members_display_name', $this->request)){
+		$ct_request->sender_nickname = $this->request['members_display_name'];
+	    }else if(array_key_exists('UserName', $this->request)){
+		$ct_request->sender_nickname = $this->request['UserName'];
+	    }else{
+		$ct_request->sender_nickname = NULL;
+	    }
+	    $ct_request->sender_ip = $sender_ip;
+	    $ct_request->sender_email = $sender_email;
+	    $ct_request->sender_info = $post_info;
+	    $ct_request->agent = 'ipboard-19';
+	    $ct_request->js_on = $this->request['ct_checkjs'] == md5($config_key . '+' . ipsRegistry::$settings['email_in']) ? 1 : 0;
+	    $ct_request->submit_time = $submit_time;
+
+	    $ct_result = $ct->isAllowUser($ct_request);
+	
+	    if($ct->server_change){
+                if(empty( $server )){
+                    $this->DB->insert( 'cleantalk_server', array( 'work_url' => $ct->work_url, 'server_ttl' => $ct->server_ttl, 'server_changed' => time() ));
+                }else{
+                    $this->DB->update( 'cleantalk_server', array( 'work_url' => $ct->work_url, 'server_ttl' => $ct->server_ttl, 'server_changed' => time() ));
+                }
+	    }
+
+	    // First check errstr flag.
+	    if(!empty($ct_result->errstr) || (!empty($ct_result->inactive) && $ct_result->inactive == 1)){
+		    // Cleantalk error so we go default way (no action at all).
+		    // Just inform admin.
+		    $err_title = ($cms_lang == 'ru') ? 'Ошибка хука CleanTalk' : 'CleanTalk hook error';
+		    if(!empty($ct_result->inactive) && $ct_result->inactive == 1){
+			$err_str = preg_replace('/^[^\*]*?\*\*\*|\*\*\*[^\*]*?$/iu', '', $ct_result->comment);
+		    }else{
+			$err_str = preg_replace('/^[^\*]*?\*\*\*|\*\*\*[^\*]*?$/iu', '', $ct_result->errstr);
+		    }
+		    $time = $this->DB->buildAndFetch( array( 'select' => 'ct_value',
+							  'from'   => 'cleantalk_timelabels',
+							  'where'  => 'ct_key=\'mail_error_registerProcessForm\'' ) 
+		    );
+
+		    if ( empty( $time ) || empty( $time['ct_value'] ) || ( time() - 900 > $time['ct_value'] ) ) {		// 15 minutes
+			$this->DB->replace( 'cleantalk_timelabels', array( 'ct_key' => 'mail_error_registerProcessForm', 'ct_value' => time() ), array( 'ct_key' ) );
+
+			$mail_from_addr = 'support@cleantalk.org';
+			$mail_from_user = 'CleanTalk';
+			$mail_subj = ipsRegistry::$settings['board_name'] . ' - ' . $err_title . '!';
+			$mail_body = '<b>' . ipsRegistry::$settings['board_name'] . ' - ' . $err_title . ':</b><br />' . $err_str;
+
+			$classToLoad = IPSLib::loadLibrary( IPS_KERNEL_PATH . 'classEmail.php', 'classEmail' );
+			$emailer = new $classToLoad(
+						    array('debug'		=> 0,
+							  'debug_path'		=> DOC_IPS_ROOT_PATH . '_mail',
+							  'smtp_host'		=> ipsRegistry::$settings['smtp_host'] ? ipsRegistry::$settings['smtp_host'] : 'localhost',
+							  'smtp_port'		=> intval(ipsRegistry::$settings['smtp_port']) ? intval(ipsRegistry::$settings['smtp_port']) : 25,
+							  'smtp_user'		=> ipsRegistry::$settings['smtp_user'],
+							  'smtp_pass'		=> ipsRegistry::$settings['smtp_pass'],
+							  'smtp_helo'		=> ipsRegistry::$settings['smtp_helo'],
+							  'method'		=> ipsRegistry::$settings['mail_method'],
+							  'wrap_brackets'	=> ipsRegistry::$settings['mail_wrap_brackets'],
+							  'extra_opts'		=> ipsRegistry::$settings['php_mail_extra'],
+							  'charset'		=> 'utf-8',
+							  'html'		=> 1
+							)
+			);
+			$emailer->setFrom( $mail_from_addr, $mail_from_user );
+			$emailer->setTo( ipsRegistry::$settings['email_in'] );
+			$emailer->setSubject( $mail_subj );
+			$emailer->setBody( $mail_body );
+			$emailer->sendMail();
+		    }
+		    //return parent::registerProcessForm();
+	    }
+
+	    if($ct_result->allow == 1||!empty($ct_result->errstr)&&$ct_request->js_on==1){
+		// Not spammer.
+		return parent::registerProcessForm();
+	    }
+	    else if($ct_result->allow == 0||!empty($ct_result->errstr)&&$ct_request->js_on==0)
+	    {
+		 // Spammer - display message and exit.
+		$err_str = '<span style="color:#ab1f39;">' . $ct_result->comment . '</span><script>setTimeout("history.back()", 5000);</script>';
+		if(ipsRegistry::$settings['spam_service_enabled']){
+			$ct_resume2log = trim(str_replace('*', '', $ct_result->comment));
+			ipsRegistry::DB()->insert( 'spam_service_log', array(
+									'log_date'	=> time(),
+									'log_code'	=> 4,	// Known spammer
+									'log_msg'	=> $ct_resume2log,
+									'email_address'	=> $sender_email,
+									'ip_address'	=> $sender_ip
+									)
+			);
+		}
+		$this->registry->output->showError($err_str);
+		return;
+	    }
+	}else{
+	    return parent::registerProcessForm();
+	}
+    }
+}
+]]></hooks_source>
+    </file>
+    <file>
+      <hook_file_real>cleantalkActionSaveForm.php</hook_file_real>
+      <hook_type>commandHooks</hook_type>
+      <hook_classname>cleantalkActionSaveForm</hook_classname>
+      <hook_data><![CDATA[a:8:{s:12:"dataLocation";s:0:"";s:14:"libApplication";s:0:"";s:15:"classToOverload";s:23:"public_forums_post_post";s:9:"skinGroup";N;s:12:"skinFunction";N;s:4:"type";N;s:2:"id";N;s:8:"position";N;}]]></hook_data>
+      <hooks_source><![CDATA[<?php
+//------------------------------------------
+// CLEANTALK - STOP SPAMMER REGISTRATION v1.6
+// For IP.Board, by CleanTalk
+//------------------------------------------
+
+class cleantalkActionSaveForm extends (~extends~)
+{
+
+    public function saveForm($type)
+    {
+
+        if(ipsRegistry::$settings['cleantalk_enabled'] && 
+		ipsRegistry::$settings['cleantalk_moderate_new_guest'] && 
+                $this->request['app'] == 'forums' &&
+                $this->request['module'] == 'post' &&
+                $this->request['section'] == 'post' &&
+		(
+		    $this->request['do'] == 'reply_post_do' ||
+		    $this->request['do'] == 'new_post_do'
+		) &&
+                (
+                    array_key_exists('submit', $this->request) ||
+                    array_key_exists('dosubmit', $this->request)
+                )
+         ){
+       	    $ver4sym = ipsRegistry::$version;
+	    $ver4sym = substr($ver4sym, 0, 4);	// '3.4.'
+
+            if( $this->memberData['member_id'] > 0 ){
+                $posts_conf = intval(ipsRegistry::$settings['cleantalk_min_posts']);
+                $posts_count = 0;
+                # get count of moderated posts
+                if(strcmp($ver4sym, '3.2.') >= 0){
+                    if ( ! $this->registry->isClassLoaded('topics') ) {
+                        $classToLoad = IPSLib::loadLibrary( IPSLib::getAppDir( 'forums' ) . "/sources/classes/topics.php", 'app_forums_classes_topics', 'forums' );
+                        $this->registry->setClass( 'topics', new $classToLoad( $this->registry ) );
+                    }
+                
+                    $posts_count = intval($this->registry->getClass('topics')->getPosts( 
+                                                                    array(
+									'authorId'	=> $this->memberData['member_id'],
+									'onlyViewable'  => true,
+									'onlyVisible'   => true,
+                                                                        'getCountOnly'  => true
+                                                                        )
+                    ));
+                }else if($ver4sym == '3.1.'){
+                        $this->DB->build(array(
+						'select' => 'count(*) as count',
+						'from'   => 'posts',
+						'where'  => 'author_id=' . $this->memberData['member_id'] . ' and new_topic=0 and queued=0'
+					)
+                        );
+                        $db_res = $this->DB->execute();
+                        if($r = $this->DB->fetch($db_res)){
+                            $posts_count = intval($r['count']);
+                        }
+                }else{
+                    return parent::saveForm($type);
+                }
+                
+                if( $posts_count >= $posts_conf ){
+                    return parent::saveForm($type);
+                }
+            }
+            
+            require_once(IPS_HOOKS_PATH . 'cleantalk.class.php');
+	    session_name('cleantalksession');
+	    if (!isset($_SESSION)) {
+		session_start();
+	    }
+	    if (array_key_exists('formtime', $_SESSION)) {
+		$submit_time = time() - (int) $_SESSION['formtime'];
+	    } else {
+		$submit_time = NULL;
+	    }
+	    $_SESSION['formtime'] = time();
+
+	    $cms_lang = substr($this->lang->local, 0, 2);
+	    $post_info = '';
+	    if(function_exists('json_encode')){
+		$arr = array(
+		    'cms_lang' => $cms_lang,
+		    'REFFERRER' => $_SERVER['HTTP_REFERER'],
+		    'USER_AGENT' => $_SERVER['HTTP_USER_AGENT'],
+		);
+		$post_info = json_encode($arr);
+	    }
+	    if($post_info === FALSE) $post_info = '';
+
+	    $ct_url = 'http://moderate.cleantalk.org';
+	    $server = $this->DB->buildAndFetch( array( 
+                                                    'select' => 'work_url, server_ttl, server_changed',
+                                                    'from'   => 'cleantalk_server'
+                                                  )
+	    );
+	    $config_work_url = !empty( $server ) ? strval($server['work_url']) : $ct_url;
+	    $config_ttl = !empty( $server ) ? intval($server['server_ttl']) : 43200;
+	    $config_changed = !empty( $server ) ? intval($server['server_changed']) : 1349162987;
+            
+	    $config_key = empty(ipsRegistry::$settings['cleantalk_auth_key']) ? 'enter key' : ipsRegistry::$settings['cleantalk_auth_key'];
+
+            $example = '';
+            
+            $forumId = intval( $this->request['f'] );
+            $topicId = intval( $this->request['t'] );
+            $postId = intval( $this->request['p'] );
+
+	    if(strcmp($ver4sym, '3.2.') >= 0){
+		if ( ! $this->registry->isClassLoaded('topics') ) {
+		    $classToLoad = IPSLib::loadLibrary( IPSLib::getAppDir( 'forums' ) . "/sources/classes/topics.php", 'app_forums_classes_topics', 'forums' );
+		    $this->registry->setClass( 'topics', new $classToLoad( $this->registry ) );
+		}
+                #get 1-st comment - article itself
+		$posts = $this->registry->getClass('topics')->getPosts( 
+                                                                    array(
+                                                                        'topicId'	=> $topicId,
+									'onlyViewable'  => true,
+									'onlyVisible'   => true,
+									'parse'		=> false,
+									'forumId'	=> $forumId,
+									'limit'		=> 1,
+									'sortField'	=> 'date',
+									'sortOrder'	=> 'asc'
+                                                                        )
+		);
+		foreach ($posts as $post) {
+			$example .= $post['post'] . "\n\n";
+		}
+                
+                # get last 10 comments
+		$posts = $this->registry->getClass('topics')->getPosts( 
+                                                                    array(
+                                                                        'topicId'	=> $topicId,
+									'onlyViewable'  => true,
+									'onlyVisible'   => true,
+									'parse'		=> false,
+									'forumId'	=> $forumId,
+									'limit'		=> 10,
+									'sortField'	=> 'date',
+									'sortOrder'	=> 'desc'
+                                                                        )
+		);
+		foreach ($posts as $post) {
+			$example .= $post['post'] . "\n\n";
+		}
+	    }else if($ver4sym == '3.1.'){
+                #get 1-st comment - article itself
+		$r = $this->DB->buildAndFetch(array(
+						'select' => 'post',
+						'from'   => 'posts',
+						'where'  => 'topic_id=' . $topicId . ' and new_topic=1 and queued=0',
+                                                'order'  => 'post_date ASC',
+                                                'limit'	 => array(1)
+					)
+		);
+		if(!empty($r)){
+                    $example .= $r['post'] . "\n\n";
+                }
+
+		# get last 10 comments
+                $this->DB->build(array(
+						'select' => 'post',
+						'from'   => 'posts',
+						'where'  => 'topic_id=' . $topicId . ' and new_topic=0 and queued=0',
+                                                'order'  => 'post_date DESC',
+                                                'limit'	 => array(10)
+					)
+		);
+                $db_res = $this->DB->execute();
+		while($r = $this->DB->fetch($db_res)){
+			$example .= $r['post'] . "\n\n";
+		}
+	    }else{
+		return parent::saveForm($type);
+	    }
+
+	    $ct = new Cleantalk();
+	    $ct->work_url = $config_work_url;
+	    $ct->server_url = $ct_url;
+	    $ct->server_ttl = $config_ttl;
+	    $ct->server_changed = $config_changed;
+
+	    $sender_ip = $ct->ct_session_ip($this->member->ip_address);
+
+	    $ct_request = new CleantalkRequest();
+	    $ct_request->auth_key = $config_key;
+	    if($this->memberData['member_id'] == 0){
+		$sender_email = filter_var($this->request['EmailAddress'], FILTER_SANITIZE_EMAIL);
+		if(array_key_exists('members_display_name', $this->request)){
+		    $ct_request->sender_nickname = $this->request['members_display_name'];
+		}else if(array_key_exists('UserName', $this->request)){
+		    $ct_request->sender_nickname = $this->request['UserName'];
+		}else{
+		    $ct_request->sender_nickname = NULL;
+		}
+	    }else{
+		$sender_email = $this->memberData['email'];
+		$ct_request->sender_nickname = $this->memberData['members_display_name'];
+	    }
+	    $ct_request->sender_ip = $sender_ip;
+	    $ct_request->sender_email = $sender_email;
+	    $ct_request->sender_info = $post_info;
+	    $ct_request->agent = 'ipboard-19';
+            $ct_request->js_on = $this->request['ct_checkjs'] == md5($config_key . '+' . ipsRegistry::$settings['email_in']) ? 1 : 0;
+	    $ct_request->submit_time = $submit_time;
+	    $ct_request->message = html_entity_decode(preg_replace("/%u?([0-9a-f]+)/i","&#x\\1;",urldecode($this->request['Post'])),null,'UTF-8'); //rawurldecode($this->request['Post']);
+	    $ct_request->example = $example;
+	    $ct_request->stoplist_check = '';
+	    $ct_request->allow_links = 0;
+
+	    $ct_result = $ct->isAllowMessage($ct_request);
+	
+	    if($ct->server_change){
+                if(empty( $server )){
+                    $this->DB->insert( 'cleantalk_server', array( 'work_url' => $ct->work_url, 'server_ttl' => $ct->server_ttl, 'server_changed' => time() ));
+                }else{
+                    $this->DB->update( 'cleantalk_server', array( 'work_url' => $ct->work_url, 'server_ttl' => $ct->server_ttl, 'server_changed' => time() ));
+                }
+	    }
+
+	    // First check errstr flag.
+	    if(!empty($ct_result->errstr) || (!empty($ct_result->inactive) && $ct_result->inactive == 1)){
+		    // Cleantalk error so we go default way (no action at all).
+		    // Just inform admin.
+		    $err_title = ($cms_lang == 'ru') ? 'Ошибка хука CleanTalk' : 'CleanTalk hook error';
+		    if(!empty($ct_result->inactive) && $ct_result->inactive == 1){
+			$err_str = preg_replace('/^[^\*]*?\*\*\*|\*\*\*[^\*]*?$/iu', '', $ct_result->comment);
+		    }else{
+			$err_str = preg_replace('/^[^\*]*?\*\*\*|\*\*\*[^\*]*?$/iu', '', $ct_result->errstr);
+		    }
+		    $time = $this->DB->buildAndFetch( array( 'select' => 'ct_value',
+							  'from'   => 'cleantalk_timelabels',
+							  'where'  => 'ct_key=\'mail_error_commentSaveForm\'' ) 
+		    );
+
+		    if ( empty( $time ) || empty( $time['ct_value'] ) || ( time() - 900 > $time['ct_value'] ) ) {		// 15 minutes
+			$this->DB->replace( 'cleantalk_timelabels', array( 'ct_key' => 'mail_error_commentSaveForm', 'ct_value' => time() ), array( 'ct_key' ) );
+
+			$mail_from_addr = 'support@cleantalk.org';
+			$mail_from_user = 'CleanTalk';
+			$mail_subj = ipsRegistry::$settings['board_name'] . ' - ' . $err_title . '!';
+			$mail_body = '<b>' . ipsRegistry::$settings['board_name'] . ' - ' . $err_title . ':</b><br />' . $err_str;
+
+			$classToLoad = IPSLib::loadLibrary( IPS_KERNEL_PATH . 'classEmail.php', 'classEmail' );
+			$emailer = new $classToLoad(
+						    array('debug'		=> 0,
+							  'debug_path'		=> DOC_IPS_ROOT_PATH . '_mail',
+							  'smtp_host'		=> ipsRegistry::$settings['smtp_host'] ? ipsRegistry::$settings['smtp_host'] : 'localhost',
+							  'smtp_port'		=> intval(ipsRegistry::$settings['smtp_port']) ? intval(ipsRegistry::$settings['smtp_port']) : 25,
+							  'smtp_user'		=> ipsRegistry::$settings['smtp_user'],
+							  'smtp_pass'		=> ipsRegistry::$settings['smtp_pass'],
+							  'smtp_helo'		=> ipsRegistry::$settings['smtp_helo'],
+							  'method'		=> ipsRegistry::$settings['mail_method'],
+							  'wrap_brackets'	=> ipsRegistry::$settings['mail_wrap_brackets'],
+							  'extra_opts'		=> ipsRegistry::$settings['php_mail_extra'],
+							  'charset'		=> 'utf-8',
+							  'html'		=> 1
+							)
+			);
+			$emailer->setFrom( $mail_from_addr, $mail_from_user );
+			$emailer->setTo( ipsRegistry::$settings['email_in'] );
+			$emailer->setSubject( $mail_subj );
+			$emailer->setBody( $mail_body );
+			$emailer->sendMail();
+		    }
+		    //return parent::saveForm($type);
+	    }
+
+	    if($ct_result->allow == 1||!empty($ct_result->errstr)&&$ct_request->js_on==1){
+		return parent::saveForm($type);
+	    }
+	    else if($ct_result->allow == 0||!empty($ct_result->errstr)&&$ct_request->js_on==0)
+	    {
+		if((!empty($ct_result->stop_queue) && $ct_result->stop_queue == 1) || $this->request['do'] == 'new_post_do'){
+		    $err_str = '<span style="color:#ab1f39;">' . $ct_result->comment . '</span><script>setTimeout("history.back()", 5000);</script>';
+		    if(ipsRegistry::$settings['spam_service_enabled']){
+			$ct_resume2log = trim(str_replace('*', '', $ct_result->comment));
+			ipsRegistry::DB()->insert( 'spam_service_log', array(
+									'log_date'	=> time(),
+									'log_code'	=> 4,	// Known spammer
+									'log_msg'	=> $ct_resume2log,
+									'email_address'	=> $sender_email,
+									'ip_address'	=> $sender_ip
+									)
+			);
+		    }
+		    $this->registry->output->showError($err_str);
+		    return;
+		}else{
+		    $GLOBALS['cleantalk_not_allow'] = 1;
+                    //$err_str = '<span style="color:#ab1f39;">' . $this->lang->words['moderate_post'] . '</span><script>setTimeout("history.back()", 2000);</script>';
+		    //$this->registry->output->showError($err_str);
+		    return parent::saveForm($type);
+		}
+	    }
+	}else{
+	    return parent::saveForm($type);
+	}
+    }
+}
+]]></hooks_source>
+    </file>
+    <file>
+      <hook_file_real>cleantalkSkinPost.php</hook_file_real>
+      <hook_type>skinHooks</hook_type>
+      <hook_classname>cleantalkSkinPost</hook_classname>
+      <hook_data><![CDATA[a:8:{s:12:"dataLocation";s:0:"";s:14:"libApplication";s:0:"";s:15:"classToOverload";s:9:"skin_post";s:9:"skinGroup";N;s:12:"skinFunction";N;s:4:"type";N;s:2:"id";N;s:8:"position";N;}]]></hook_data>
+      <hooks_source><![CDATA[class cleantalkSkinPost extends (~extends~)
+{
+    public function postFormTemplate($formData=array(), $form = array())
+    {
+	$IPBHTML = ''; //test
+	if(ipsRegistry::$settings['cleantalk_enabled']){
+	    $config_key = empty(ipsRegistry::$settings['cleantalk_auth_key']) ? 'enter key' : ipsRegistry::$settings['cleantalk_auth_key'];
+	    session_name('cleantalksession');
+	    if (!isset($_SESSION)) {
+		session_start();
+	    }
+	    $_SESSION['formtime'] = time();
+	    $form_id = 'postingform';
+	    $IPBHTML = "\n";
+	    $IPBHTML .= '<script type="text/javascript">' . "\n";
+	    $IPBHTML .= '// <!#^#|CDATA|' . "\n";
+	    $IPBHTML .= 'form = document.getElementById("' . $form_id. '");' . "\n";
+	    $IPBHTML .= 'if(form){' . "\n";
+	    $IPBHTML .= "\t" . 'e_in = document.createElement("INPUT");' . "\n";
+	    $IPBHTML .= "\t" . 'e_in.setAttribute("type", "hidden");' . "\n";
+	    $IPBHTML .= "\t" . 'e_in.setAttribute("id", "ct_checkjs");' . "\n";
+	    $IPBHTML .= "\t" . 'e_in.setAttribute("name", "ct_checkjs");' . "\n";
+	    $IPBHTML .= "\t" . 'e_in.setAttribute("value", "0");' . "\n";
+	    $IPBHTML .= "\t" . 'form.appendChild(e_in);' . "\n";
+	    $IPBHTML .= "\t" . 'setTimeout("document.getElementById(\'ct_checkjs\').value = document.getElementById(\'ct_checkjs\').value.replace(\'0\', \'' . md5($config_key . '+' . ipsRegistry::$settings['email_in']) . '\');",1000)' . "\n";
+	    $IPBHTML .= '}' . "\n";
+	    $IPBHTML .= '// |#^#]>' . "\n";
+	    $IPBHTML .= '</script>' . "\n\n";
+	}
+	
+	return parent::postFormTemplate($formData, $form) . $IPBHTML;
+    }
+}
+]]></hooks_source>
+    </file>
+    <file>
+      <hook_file_real>cleantalkSkinTopic.php</hook_file_real>
+      <hook_type>skinHooks</hook_type>
+      <hook_classname>cleantalkSkinTopic</hook_classname>
+      <hook_data><![CDATA[a:8:{s:12:"dataLocation";s:0:"";s:14:"libApplication";s:0:"";s:15:"classToOverload";s:10:"skin_topic";s:9:"skinGroup";N;s:12:"skinFunction";N;s:4:"type";N;s:2:"id";N;s:8:"position";N;}]]></hook_data>
+      <hooks_source><![CDATA[class cleantalkSkinTopic extends (~extends~)
+{
+    public function topicViewTemplate($forum, $topic, $post_data, $displayData)
+    {
+	$IPBHTML = '';
+	if(ipsRegistry::$settings['cleantalk_enabled']){
+	    $config_key = empty(ipsRegistry::$settings['cleantalk_auth_key']) ? 'enter key' : ipsRegistry::$settings['cleantalk_auth_key'];
+	    session_name('cleantalksession');
+	    if (!isset($_SESSION)) {
+		session_start();
+	    }
+	    $_SESSION['formtime'] = time();
+	    $form_id = 'ips_fastReplyForm';
+	    $IPBHTML = "\n";
+	    $IPBHTML .= '<script type="text/javascript">' . "\n";
+	    $IPBHTML .= '// <!#^#|CDATA|' . "\n";
+	    $IPBHTML .= 'form = document.getElementById("' . $form_id. '");' . "\n";
+	    $IPBHTML .= 'if(!form){' . "\n";
+	    $IPBHTML .= "\t" . 'form = document.getElementById("editor_fast-reply").parentNode;' . "\n";
+	    $IPBHTML .= '}' . "\n";
+	    $IPBHTML .= 'if(form){' . "\n";
+	    $IPBHTML .= "\t" . 'e_in = document.createElement("INPUT");' . "\n";
+	    $IPBHTML .= "\t" . 'e_in.setAttribute("type", "hidden");' . "\n";
+	    $IPBHTML .= "\t" . 'e_in.setAttribute("id", "ct_checkjs");' . "\n";
+	    $IPBHTML .= "\t" . 'e_in.setAttribute("name", "ct_checkjs");' . "\n";
+	    $IPBHTML .= "\t" . 'e_in.setAttribute("value", "0");' . "\n";
+	    $IPBHTML .= "\t" . 'form.appendChild(e_in);' . "\n";
+	    $IPBHTML .= "\t" . 'setTimeout("document.getElementById(\'ct_checkjs\').value = document.getElementById(\'ct_checkjs\').value.replace(\'0\', \'' . md5($config_key . '+' . ipsRegistry::$settings['email_in']) . '\');",1000)' . "\n";
+	    $IPBHTML .= '}' . "\n";
+	    $IPBHTML .= '// |#^#]>' . "\n";
+	    $IPBHTML .= '</script>' . "\n\n";
+	}
+	
+	return parent::topicViewTemplate($forum, $topic, $post_data, $displayData) . $IPBHTML;
+    }
+}
+]]></hooks_source>
+    </file>
+    <file>
+      <hook_file_real>cleantalkActionAjaxTopics.php</hook_file_real>
+      <hook_type>commandHooks</hook_type>
+      <hook_classname>cleantalkActionAjaxTopics</hook_classname>
+      <hook_data><![CDATA[a:8:{s:12:"dataLocation";s:0:"";s:14:"libApplication";s:0:"";s:15:"classToOverload";s:25:"public_forums_ajax_topics";s:9:"skinGroup";N;s:12:"skinFunction";N;s:4:"type";N;s:2:"id";N;s:8:"position";N;}]]></hook_data>
+      <hooks_source><![CDATA[<?php
+//------------------------------------------
+// CLEANTALK - STOP SPAMMER REGISTRATION v1.6
+// For IP.Board, by CleanTalk
+//------------------------------------------
+
+class cleantalkActionAjaxTopics extends (~extends~)
+{
+
+    public function _reply()
+    {
+
+	if(ipsRegistry::$settings['cleantalk_enabled'] && 
+		ipsRegistry::$settings['cleantalk_moderate_new_guest'] && 
+                $this->request['app'] == 'forums' &&
+                $this->request['module'] == 'ajax' &&
+                $this->request['section'] == 'topics' &&
+                $this->request['do'] == 'reply'
+         ){
+       	    $ver4sym = ipsRegistry::$version;
+	    $ver4sym = substr($ver4sym, 0, 4);	// '3.4.'
+
+            if( $this->memberData['member_id'] > 0 ){
+                $posts_conf = intval(ipsRegistry::$settings['cleantalk_min_posts']);
+                $posts_count = 0;
+                # get count of moderated posts
+                if(strcmp($ver4sym, '3.2.') >= 0){
+                    if ( ! $this->registry->isClassLoaded('topics') ) {
+                        $classToLoad = IPSLib::loadLibrary( IPSLib::getAppDir( 'forums' ) . "/sources/classes/topics.php", 'app_forums_classes_topics', 'forums' );
+                        $this->registry->setClass( 'topics', new $classToLoad( $this->registry ) );
+                    }
+                
+                    $posts_count = intval($this->registry->getClass('topics')->getPosts( 
+                                                                    array(
+									'authorId'	=> $this->memberData['member_id'],
+									'onlyViewable'  => true,
+									'onlyVisible'   => true,
+                                                                        'getCountOnly'  => true
+                                                                        )
+                    ));
+                }else if($ver4sym == '3.1.'){
+                        $this->DB->build(array(
+						'select' => 'count(*) as count',
+						'from'   => 'posts',
+						'where'  => 'author_id=' . $this->memberData['member_id'] . ' and new_topic=0 and queued=0'
+					)
+                        );
+                        $db_res = $this->DB->execute();
+                        if($r = $this->DB->fetch($db_res)){
+                            $posts_count = intval($r['count']);
+                        }
+                }else{
+                    return parent::_reply();
+                }
+                
+                if( $posts_count >= $posts_conf ){
+                    return parent::_reply();
+                }
+            }
+
+            require_once(IPS_HOOKS_PATH . 'cleantalk.class.php');
+	    session_name('cleantalksession');
+	    if (!isset($_SESSION)) {
+		session_start();
+	    }
+	    if (array_key_exists('formtime', $_SESSION)) {
+		$submit_time = time() - (int) $_SESSION['formtime'];
+	    } else {
+		$submit_time = NULL;
+	    }
+	    $_SESSION['formtime'] = time();
+
+	    $cms_lang = substr($this->lang->local, 0, 2);
+	    $post_info = '';
+	    if(function_exists('json_encode')){
+		$arr = array(
+		    'cms_lang' => $cms_lang,
+		    'REFFERRER' => $_SERVER['HTTP_REFERER'],
+		    'USER_AGENT' => $_SERVER['HTTP_USER_AGENT'],
+		);
+		$post_info = json_encode($arr);
+	    }
+	    if($post_info === FALSE) $post_info = '';
+
+	    $config_url = 'http://moderate.cleantalk.org';
+	    $server = $this->DB->buildAndFetch( array( 
+                                                    'select' => 'work_url, server_ttl, server_changed',
+                                                    'from'   => 'cleantalk_server'
+                                                  )
+	    );
+      	    $config_work_url = !empty( $server ) ? strval($server['work_url']) : $ct_url;
+	    $config_ttl = !empty( $server ) ? intval($server['server_ttl']) : 43200;
+	    $config_changed = !empty( $server ) ? intval($server['server_changed']) : 1349162987;
+
+	    $config_key = empty(ipsRegistry::$settings['cleantalk_auth_key']) ? 'enter key' : ipsRegistry::$settings['cleantalk_auth_key'];
+
+            $example = '';
+            
+            $forumId = intval( $this->request['f'] );
+            $topicId = intval( $this->request['t'] );
+            $postId = intval( $this->request['p'] );
+
+	    if(strcmp($ver4sym, '3.2.') >= 0){
+		if ( ! $this->registry->isClassLoaded('topics') ) {
+		    $classToLoad = IPSLib::loadLibrary( IPSLib::getAppDir( 'forums' ) . "/sources/classes/topics.php", 'app_forums_classes_topics', 'forums' );
+		    $this->registry->setClass( 'topics', new $classToLoad( $this->registry ) );
+		}
+                #get 1-st comment - article itself
+		$posts = $this->registry->getClass('topics')->getPosts( 
+                                                                    array(
+                                                                        'topicId'	=> $topicId,
+									'onlyViewable'  => true,
+									'onlyVisible'   => true,
+									'parse'		=> false,
+									'forumId'	=> $forumId,
+									'limit'		=> 1,
+									'sortField'	=> 'date',
+									'sortOrder'	=> 'asc'
+                                                                        )
+		);
+		foreach ($posts as $post) {
+			$example .= $post['post'] . "\n\n";
+		}
+                
+                # get last 10 comments
+		$posts = $this->registry->getClass('topics')->getPosts( 
+                                                                    array(
+                                                                        'topicId'	=> $topicId,
+									'onlyViewable'  => true,
+									'onlyVisible'   => true,
+									'parse'		=> false,
+									'forumId'	=> $forumId,
+									'limit'		=> 10,
+									'sortField'	=> 'date',
+									'sortOrder'	=> 'desc'
+                                                                        )
+		);
+		foreach ($posts as $post) {
+			$example .= $post['post'] . "\n\n";
+		}
+	    }else if($ver4sym == '3.1.'){
+                #get 1-st comment - article itself
+		$r = $this->DB->buildAndFetch(array(
+						'select' => 'post',
+						'from'   => 'posts',
+						'where'  => 'topic_id=' . $topicId . ' and new_topic=1 and queued=0',
+                                                'order'  => 'post_date ASC',
+                                                'limit'	 => array(1),
+					)
+		);
+       		if(!empty($r)){
+                    $example .= $r['post'] . "\n\n";
+                }
+
+		# get last 10 comments
+                $this->DB->build(array(
+						'select' => 'post',
+						'from'   => 'posts',
+						'where'  => 'topic_id=' . $topicId . ' and new_topic=0 and queued=0',
+                                                'order'  => 'post_date DESC',
+                                                'limit'	 => array(10),
+					)
+		);
+                $db_res = $this->DB->execute();
+		while($r = $this->DB->fetch($db_res)){
+			$example .= $r['post'] . "\n\n";
+		}
+	    }else{
+		return parent::_reply();
+	    }
+
+	    $ct = new Cleantalk();
+	    $ct->work_url = $config_work_url;
+	    $ct->server_url = $ct_url;
+	    $ct->server_ttl = $config_ttl;
+	    $ct->server_changed = $config_changed;
+
+	    $sender_ip = $ct->ct_session_ip($this->member->ip_address);
+
+	    $ct_request = new CleantalkRequest();
+	    $ct_request->auth_key = $config_key;
+	    if($this->memberData['member_id'] == 0){
+		$sender_email = filter_var($this->request['EmailAddress'], FILTER_SANITIZE_EMAIL);
+		if(array_key_exists('members_display_name', $this->request)){
+		    $ct_request->sender_nickname = $this->request['members_display_name'];
+		}else if(array_key_exists('UserName', $this->request)){
+		    $ct_request->sender_nickname = $this->request['UserName'];
+		}else{
+		    $ct_request->sender_nickname = NULL;
+		}
+	    }else{
+		$sender_email = $this->memberData['email'];
+		$ct_request->sender_nickname = $this->memberData['name'];
+	    }
+	    $ct_request->sender_ip = $sender_ip;
+	    $ct_request->sender_email = $sender_email;
+	    $ct_request->sender_info = $post_info;
+	    $ct_request->agent = 'ipboard-19';
+	    $ct_request->js_on = 1;
+	    $ct_request->submit_time = $submit_time;
+	    $ct_request->message = html_entity_decode(preg_replace("/%u?([0-9a-f]+)/i","&#x\\1;",urldecode($this->request['Post'])),null,'UTF-8'); //rawurldecode($this->request['Post']);
+	    $ct_request->example = $example;
+	    $ct_request->stoplist_check = '';
+	    $ct_request->allow_links = 0;
+
+
+	    $ct_result = $ct->isAllowMessage($ct_request);
+	
+	    if($ct->server_change){
+                if(empty( $server )){
+                    $this->DB->insert( 'cleantalk_server', array( 'work_url' => $ct->work_url, 'server_ttl' => $ct->server_ttl, 'server_changed' => time() ));
+                }else{
+                    $this->DB->update( 'cleantalk_server', array( 'work_url' => $ct->work_url, 'server_ttl' => $ct->server_ttl, 'server_changed' => time() ));
+                }
+	    }
+
+	    // First check errstr flag.
+	    if(!empty($ct_result->errstr) || (!empty($ct_result->inactive) && $ct_result->inactive == 1)){
+		    // Cleantalk error so we go default way (no action at all).
+		    // Just inform admin.
+		    $err_title = ($cms_lang == 'ru') ? 'Ошибка хука CleanTalk' : 'CleanTalk hook error';
+		    if(!empty($ct_result->inactive) && $ct_result->inactive == 1){
+			$err_str = preg_replace('/^[^\*]*?\*\*\*|\*\*\*[^\*]*?$/iu', '', $ct_result->comment);
+		    }else{
+			$err_str = preg_replace('/^[^\*]*?\*\*\*|\*\*\*[^\*]*?$/iu', '', $ct_result->errstr);
+		    }
+		    $time = $this->DB->buildAndFetch( array( 'select' => 'ct_value',
+							  'from'   => 'cleantalk_timelabels',
+							  'where'  => 'ct_key=\'mail_error_commentAjaxTopic\'' ) 
+		    );
+
+		    if ( empty( $time ) || empty( $time['ct_value'] ) || ( time() - 900 > $time['ct_value'] ) ) {		// 15 minutes
+			$this->DB->replace( 'cleantalk_timelabels', array( 'ct_key' => 'mail_error_commentAjaxTopic', 'ct_value' => time() ), array( 'ct_key' ) );
+
+			$mail_from_addr = 'support@cleantalk.org';
+			$mail_from_user = 'CleanTalk';
+			$mail_subj = ipsRegistry::$settings['board_name'] . ' - ' . $err_title . '!';
+			$mail_body = '<b>' . ipsRegistry::$settings['board_name'] . ' - ' . $err_title . ':</b><br />' . $err_str;
+
+			$classToLoad = IPSLib::loadLibrary( IPS_KERNEL_PATH . 'classEmail.php', 'classEmail' );
+			$emailer = new $classToLoad(
+						    array('debug'		=> 0,
+							  'debug_path'		=> DOC_IPS_ROOT_PATH . '_mail',
+							  'smtp_host'		=> ipsRegistry::$settings['smtp_host'] ? ipsRegistry::$settings['smtp_host'] : 'localhost',
+							  'smtp_port'		=> intval(ipsRegistry::$settings['smtp_port']) ? intval(ipsRegistry::$settings['smtp_port']) : 25,
+							  'smtp_user'		=> ipsRegistry::$settings['smtp_user'],
+							  'smtp_pass'		=> ipsRegistry::$settings['smtp_pass'],
+							  'smtp_helo'		=> ipsRegistry::$settings['smtp_helo'],
+							  'method'		=> ipsRegistry::$settings['mail_method'],
+							  'wrap_brackets'	=> ipsRegistry::$settings['mail_wrap_brackets'],
+							  'extra_opts'		=> ipsRegistry::$settings['php_mail_extra'],
+							  'charset'		=> 'utf-8',
+							  'html'		=> 1
+							)
+			);
+			$emailer->setFrom( $mail_from_addr, $mail_from_user );
+			$emailer->setTo( ipsRegistry::$settings['email_in'] );
+			$emailer->setSubject( $mail_subj );
+			$emailer->setBody( $mail_body );
+			$emailer->sendMail();
+		    }
+		    return parent::_reply();
+	    }
+
+	    if($ct_result->allow == 1){
+		return parent::_reply();
+	    }else{
+		if((!empty($ct_result->stop_queue) && $ct_result->stop_queue == 1)){
+		    $err_str = '<span style="color:#ab1f39;">' . $ct_result->comment . '</span><script>setTimeout("history.back()", 5000);</script>';
+		    if(ipsRegistry::$settings['spam_service_enabled']){
+			$ct_resume2log = trim(str_replace('*', '', $ct_result->comment));
+			ipsRegistry::DB()->insert( 'spam_service_log', array(
+									'log_date'	=> time(),
+									'log_code'	=> 4,	// Known spammer
+									'log_msg'	=> $ct_resume2log,
+									'email_address'	=> $sender_email,
+									'ip_address'	=> $sender_ip
+									)
+			);
+		    }
+		    $this->returnJsonError($err_str);
+		    return;
+		}else{
+		    $GLOBALS['cleantalk_not_allow'] = 1;
+		    return parent::_reply();
+		}
+	    }
+	}else{
+	    return parent::_reply();
+	}
+    }
+}
+]]></hooks_source>
+    </file>
+    <file>
+      <hook_file_real>cleantalkDataHookAddReply.php</hook_file_real>
+      <hook_type>dataHooks</hook_type>
+      <hook_classname>cleantalkDataHookAddReply</hook_classname>
+      <hook_data><![CDATA[a:8:{s:12:"dataLocation";s:12:"postAddReply";s:14:"libApplication";s:0:"";s:15:"classToOverload";s:0:"";s:9:"skinGroup";N;s:12:"skinFunction";N;s:4:"type";N;s:2:"id";N;s:8:"position";N;}]]></hook_data>
+      <hooks_source><![CDATA[<?php
+//------------------------------------------
+// CLEANTALK - STOP SPAMMER REGISTRATION v1.6
+// For IP.Board, by CleanTalk
+//------------------------------------------
+
+class cleantalkDataHookAddReply
+{
+	public function handleData($post)
+	{
+		if(isset($GLOBALS['cleantalk_not_allow']) && $GLOBALS['cleantalk_not_allow'] == 1){
+			unset($GLOBALS['cleantalk_not_allow']);
+			$post['queued'] = 1;
+		}
+		return $post;
+	}
+}
+?>
+]]></hooks_source>
+    </file>
+    <file>
+      <hook_file_real>cleantalkSkinRegister.php</hook_file_real>
+      <hook_type>skinHooks</hook_type>
+      <hook_classname>cleantalkSkinRegister</hook_classname>
+      <hook_data><![CDATA[a:8:{s:12:"dataLocation";s:0:"";s:14:"libApplication";s:0:"";s:15:"classToOverload";s:13:"skin_register";s:9:"skinGroup";N;s:12:"skinFunction";N;s:4:"type";N;s:2:"id";N;s:8:"position";N;}]]></hook_data>
+      <hooks_source><![CDATA[class cleantalkSkinRegister extends (~extends~)
+{
+    public function registerForm($general_errors = array(), $data = array(), $inline_errors = array(), $time_select = array(), $custom_fields = array(), $nexusFields = array(), $nexusStates = array())
+    {
+	$IPBHTML = '';
+	if(ipsRegistry::$settings['cleantalk_enabled']){
+	    $config_key = empty(ipsRegistry::$settings['cleantalk_auth_key']) ? 'enter key' : ipsRegistry::$settings['cleantalk_auth_key'];
+	    session_name('cleantalksession');
+	    if (!isset($_SESSION)) {
+		session_start();
+	    }
+	    $_SESSION['formtime'] = time();
+	    $form_id = 'register';
+	    $IPBHTML = "\n";
+	    $IPBHTML .= '<script type="text/javascript">' . "\n";
+	    $IPBHTML .= '// <!#^#|CDATA|' . "\n";
+	    $IPBHTML .= 'form = document.getElementById("' . $form_id. '");' . "\n";
+	    $IPBHTML .= 'if(form){' . "\n";
+	    $IPBHTML .= "\t" . 'e_in = document.createElement("INPUT");' . "\n";
+	    $IPBHTML .= "\t" . 'e_in.setAttribute("type", "hidden");' . "\n";
+	    $IPBHTML .= "\t" . 'e_in.setAttribute("id", "ct_checkjs");' . "\n";
+	    $IPBHTML .= "\t" . 'e_in.setAttribute("name", "ct_checkjs");' . "\n";
+	    $IPBHTML .= "\t" . 'e_in.setAttribute("value", "0");' . "\n";
+	    $IPBHTML .= "\t" . 'form.appendChild(e_in);' . "\n";
+	    $IPBHTML .= "\t" . 'setTimeout("document.getElementById(\'ct_checkjs\').value = document.getElementById(\'ct_checkjs\').value.replace(\'0\', \'' . md5($config_key . '+' . ipsRegistry::$settings['email_in']) . '\');",1000)' . "\n";
+	    $IPBHTML .= '}' . "\n";
+	    $IPBHTML .= '// |#^#]>' . "\n";
+	    $IPBHTML .= '</script>' . "\n\n";
+	}
+	
+	return parent::registerForm($general_errors, $data, $inline_errors, $time_select, $custom_fields, $nexusFields, $nexusStates) . $IPBHTML;
+    }
+}
+]]></hooks_source>
+    </file>
+    <file>
+      <hook_file_real>cleantalkActionAdminSettings.php</hook_file_real>
+      <hook_type>commandHooks</hook_type>
+      <hook_classname>cleantalkActionAdminSettings</hook_classname>
+      <hook_data><![CDATA[a:8:{s:12:"dataLocation";s:0:"";s:14:"libApplication";s:0:"";s:15:"classToOverload";s:28:"admin_core_settings_settings";s:9:"skinGroup";N;s:12:"skinFunction";N;s:4:"type";N;s:2:"id";N;s:8:"position";N;}]]></hook_data>
+      <hooks_source><![CDATA[<?php
+
+class cleantalkActionAdminSettings extends (~extends~)
+{
+	public function doExecute( ipsRegistry $registry ) 
+	{
+		if($this->request['do']=='setting_update'&&ipsRegistry::$settings['cleantalk_enabled'])
+		{
+			require_once(IPS_HOOKS_PATH . 'cleantalk.class.php');
+			$ct_url = 'http://moderate.cleantalk.org';
+			$server = $this->DB->buildAndFetch( array( 
+			                                            'select' => 'work_url, server_ttl, server_changed',
+			                                            'from'   => 'cleantalk_server'
+			                                          )
+			);
+			$config_work_url = !empty( $server ) ? strval($server['work_url']) : $ct_url;
+			$config_ttl = !empty( $server ) ? intval($server['server_ttl']) : 43200;
+			$config_changed = !empty( $server ) ? intval($server['server_changed']) : 1349162987;
+			
+			$config_key = $_POST['cleantalk_auth_key'];
+			
+			$ct = new Cleantalk();
+			$ct->work_url = $config_work_url;
+			$ct->server_url = $ct_url;
+			$ct->server_ttl = $config_ttl;
+			$ct->server_changed = $config_changed;
+
+			$sender_ip = $ct->ct_session_ip($this->member->ip_address);
+			
+			$ct_request = new CleantalkRequest();
+			$ct_request->auth_key = $config_key;
+			$ct_request->sender_nickname = "CleanTalk";
+			$ct_request->sender_ip = $sender_ip;
+			$ct_request->sender_email = 'good@cleantalk.org';
+			$ct_request->message = 'This message is a test to check the connection to the CleanTalk servers. ';
+			$ct_request->sender_info = '';
+			$ct_request->agent = 'ipboard-19';
+			$ct_request->js_on = 1;
+			
+			$ct_result = $ct->isAllowMessage($ct_request);
+		}
+		return parent::doExecute($registry);
+	}
+}]]></hooks_source>
+    </file>
+  </hookfiles>
+  <hookextras_custom>
+    <file>
+      <filename>cleantalkLibrary.php</filename>
+      <source><![CDATA[<?php
+
+class cleantalkLibrary{
+
+    const BASE_CLASS = 'cleantalk.class.php';
+    const JSON_CLASS = 'JSON.php';
+
+    public function install(){
+	$file = file_get_contents('http://cleantalk.org/files/base/200/cleantalk.class.php');
+	if($file === FALSE){
+	    return FALSE;
+	}
+	if(file_put_contents(IPS_HOOKS_PATH . self::BASE_CLASS , $file) === FALSE){
+	    return FALSE;
+	}
+
+	$file = file_get_contents('http://cleantalk.org/files/base/JSON.php');
+	if($file === FALSE){
+	    return FALSE;
+	}
+	if(file_put_contents(IPS_HOOKS_PATH . self::JSON_CLASS , $file) === FALSE){
+	    return FALSE;
+	}
+
+        $ver4sym = ipsRegistry::$version;
+        $ver4sym = substr($ver4sym, 0, 4);
+	if($ver4sym == '3.1.'){
+	    ipsRegistry::DB()->query( "CREATE TABLE IF NOT EXISTS cleantalk_timelabels (ct_key varchar(255), ct_value int(11), PRIMARY KEY (ct_key) ) ENGINE=myisam" );
+	    ipsRegistry::DB()->query( "CREATE TABLE IF NOT EXISTS cleantalk_server (work_url varchar(255), server_ttl int(11), server_changed int(11) ) ENGINE=myisam" );
+	    ipsRegistry::DB()->query( "CREATE TABLE IF NOT EXISTS cleantalk_settings (ct_key varchar(255), ct_value varchar(255), PRIMARY KEY (ct_key) ) ENGINE=myisam" );
+	    ipsRegistry::DB()->replace( 'cleantalk_settings', array( 'ct_key' => 'posts', 'ct_value' => '3'), array('ct_key') );
+	}
+
+	return TRUE;
+    }
+
+    public function uninstall(){
+	unlink(IPS_HOOKS_PATH . self::BASE_CLASS);
+	unlink(IPS_HOOKS_PATH . self::JSON_CLASS);
+	return TRUE;
+    }
+}
+]]></source>
+    </file>
+  </hookextras_custom>
+  <hookextras_settings>
+    <setting>
+      <conf_is_title>1</conf_is_title>
+      <conf_title_title>CleanTalk</conf_title_title>
+      <conf_title_desc>Configures the CleanTalk hook.</conf_title_desc>
+      <conf_title_noshow>0</conf_title_noshow>
+      <conf_title_keyword>cleantalk</conf_title_keyword>
+      <conf_title_app>core</conf_title_app>
+      <conf_title_tab>Hooks</conf_title_tab>
+    </setting>
+    <setting>
+      <conf_id>358</conf_id>
+      <conf_title>Access key</conf_title>
+      <conf_description><![CDATA[<a href="https://cleantalk.org/install/ipboard?step=2" target="_blank">Click here to get access key</a>]]></conf_description>
+      <conf_group>40</conf_group>
+      <conf_type>input</conf_type>
+      <conf_key>cleantalk_auth_key</conf_key>
+      <conf_value/>
+      <conf_default>enter key</conf_default>
+      <conf_extra/>
+      <conf_evalphp/>
+      <conf_protected>1</conf_protected>
+      <conf_position>4</conf_position>
+      <conf_start_group/>
+      <conf_add_cache>1</conf_add_cache>
+      <conf_keywords/>
+      <conf_title_keyword>cleantalk</conf_title_keyword>
+      <conf_is_title>0</conf_is_title>
+    </setting>
+    <setting>
+      <conf_id>359</conf_id>
+      <conf_title>Enable CleanTalk</conf_title>
+      <conf_description/>
+      <conf_group>40</conf_group>
+      <conf_type>yes_no</conf_type>
+      <conf_key>cleantalk_enabled</conf_key>
+      <conf_value/>
+      <conf_default>1</conf_default>
+      <conf_extra/>
+      <conf_evalphp/>
+      <conf_protected>1</conf_protected>
+      <conf_position>1</conf_position>
+      <conf_start_group/>
+      <conf_add_cache>1</conf_add_cache>
+      <conf_keywords/>
+      <conf_title_keyword>cleantalk</conf_title_keyword>
+      <conf_is_title>0</conf_is_title>
+    </setting>
+    <setting>
+      <conf_id>360</conf_id>
+      <conf_title>Minimum approved posts for registered user</conf_title>
+      <conf_description>Moderate messages of guests and registered users who have approved messages less than this value.</conf_description>
+      <conf_group>40</conf_group>
+      <conf_type>input</conf_type>
+      <conf_key>cleantalk_min_posts</conf_key>
+      <conf_value/>
+      <conf_default>3</conf_default>
+      <conf_extra/>
+      <conf_evalphp><![CDATA[if($save == 1) {
+$value = intval($value);
+if($value < 0) $value = 0;
+}
+]]></conf_evalphp>
+      <conf_protected>1</conf_protected>
+      <conf_position>2</conf_position>
+      <conf_start_group/>
+      <conf_add_cache>1</conf_add_cache>
+      <conf_keywords/>
+      <conf_title_keyword>cleantalk</conf_title_keyword>
+      <conf_is_title>0</conf_is_title>
+    </setting>
+    <setting>
+      <conf_id>361</conf_id>
+      <conf_title>Moderate messages of new users and guests</conf_title>
+      <conf_description>Moderate messages of new users (who have less than value above published and confirmed messages) and guests.</conf_description>
+      <conf_group>40</conf_group>
+      <conf_type>yes_no</conf_type>
+      <conf_key>cleantalk_moderate_new_guest</conf_key>
+      <conf_value/>
+      <conf_default>1</conf_default>
+      <conf_extra/>
+      <conf_evalphp/>
+      <conf_protected>1</conf_protected>
+      <conf_position>3</conf_position>
+      <conf_start_group/>
+      <conf_add_cache>1</conf_add_cache>
+      <conf_keywords/>
+      <conf_title_keyword>cleantalk</conf_title_keyword>
+      <conf_is_title>0</conf_is_title>
+    </setting>
+    <setting>
+      <conf_id>362</conf_id>
+      <conf_title>Tell others about CleanTalk</conf_title>
+      <conf_description>Enabling  this box places a small link under the comment form that lets others know what anti-spam tool protects your site.</conf_description>
+      <conf_group>40</conf_group>
+      <conf_type>yes_no</conf_type>
+      <conf_key>cleantalk_show_link</conf_key>
+      <conf_value/>
+      <conf_default>0</conf_default>
+      <conf_extra/>
+      <conf_evalphp/>
+      <conf_protected>1</conf_protected>
+      <conf_position>5</conf_position>
+      <conf_start_group/>
+      <conf_add_cache>1</conf_add_cache>
+      <conf_keywords/>
+      <conf_title_keyword>cleantalk</conf_title_keyword>
+      <conf_is_title>0</conf_is_title>
+    </setting>
+  </hookextras_settings>
+  <hookextras_language/>
+  <hookextras_modules/>
+  <hookextras_help/>
+  <hookextras_templates/>
+  <hookextras_css/>
+  <hookextras_replacements/>
+  <hookextras_tasks/>
+  <hookextras_database_create>
+    <create>
+      <name>cleantalk_timelabels</name>
+      <fields>ct_key varchar(255), ct_value int(11), PRIMARY KEY (ct_key)</fields>
+      <tabletype>myisam</tabletype>
+    </create>
+    <create>
+      <name>cleantalk_server</name>
+      <fields>work_url varchar(255), server_ttl int(11), server_changed int(11)</fields>
+      <tabletype>myisam</tabletype>
+    </create>
+    <create>
+      <name>cleantalk_settings</name>
+      <fields>ct_key varchar(255), ct_value varchar(255), PRIMARY KEY (ct_key)</fields>
+      <tabletype>myisam</tabletype>
+    </create>
+  </hookextras_database_create>
+  <hookextras_database_alter/>
+  <hookextras_database_update/>
+  <hookextras_database_insert>
+    <insert>
+      <table>cleantalk_settings</table>
+      <updates>ct_key=posts, ct_value=3</updates>
+      <fordelete/>
+    </insert>
+  </hookextras_database_insert>
+</hookexport>
