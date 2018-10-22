@@ -9,8 +9,8 @@
       <hook_website>https://cleantalk.org</hook_website>
       <hook_update_check>http://download.cleantalk.org/ipboard/update_checker.php?</hook_update_check>
       <hook_requirements><![CDATA[a:3:{s:21:"required_applications";a:1:{s:4:"core";a:3:{s:8:"app_name";s:6:"System";s:11:"min_version";i:31007;s:11:"max_version";i:0;}}s:20:"hook_php_version_min";s:0:"";s:20:"hook_php_version_max";s:0:"";}]]></hook_requirements>
-      <hook_version_human>1.9</hook_version_human>
-      <hook_version_long>1900</hook_version_long>
+      <hook_version_human>2.0</hook_version_human>
+      <hook_version_long>2000</hook_version_long>
       <hook_extra_data><![CDATA[a:4:{s:7:"display";a:1:{s:6:"custom";s:20:"cleantalkLibrary.php";}s:13:"settingGroups";a:1:{i:0;s:9:"cleantalk";}s:8:"settings";a:4:{i:0;s:18:"cleantalk_auth_key";i:1;s:17:"cleantalk_enabled";i:2;s:19:"cleantalk_min_posts";i:3;s:28:"cleantalk_moderate_new_guest";}s:8:"database";a:2:{s:6:"create";a:3:{i:0;a:3:{s:4:"name";s:20:"cleantalk_timelabels";s:6:"fields";s:59:"ct_key varchar(255), ct_value int(11), PRIMARY KEY (ct_key)";s:9:"tabletype";s:6:"myisam";}i:1;a:3:{s:4:"name";s:16:"cleantalk_server";s:6:"fields";s:65:"work_url varchar(255), server_ttl int(11), server_changed int(11)";s:9:"tabletype";s:6:"myisam";}i:2;a:3:{s:4:"name";s:18:"cleantalk_settings";s:6:"fields";s:64:"ct_key varchar(255), ct_value varchar(255), PRIMARY KEY (ct_key)";s:9:"tabletype";s:6:"myisam";}}s:6:"insert";a:1:{i:0;a:3:{s:5:"table";s:18:"cleantalk_settings";s:7:"updates";s:24:"ct_key=posts, ct_value=3";s:9:"fordelete";s:0:"";}}}}]]></hook_extra_data>
       <hook_key>cleantalk</hook_key>
       <hook_global_caches/>
@@ -48,34 +48,44 @@
 
 class cleantalkActionRegister extends (~extends~)
 {
+    public function ctTestCookie()
+    {
+        $config_key = empty(ipsRegistry::$settings['cleantalk_auth_key']) ? 'enter key' : ipsRegistry::$settings['cleantalk_auth_key'];
 
+        if(isset($_COOKIE['ct_cookies_test'])){
+            
+            $cookie_test = json_decode(stripslashes($_COOKIE['ct_cookies_test']), true);
+            
+            $check_srting = $config_key;
+            foreach($cookie_test['cookies_names'] as $cookie_name){
+                $check_srting .= isset($_COOKIE[$cookie_name]) ? $_COOKIE[$cookie_name] : '';
+            } unset($cokie_name);
+            
+            if($cookie_test['check_value'] == md5($check_srting)){
+                return 1;
+            }else{
+                return 0;
+            }
+        }else{
+            return null;
+        }        
+    }
     public function registerProcessForm()
     {
 
 	if(ipsRegistry::$settings['cleantalk_enabled']){
 	    require_once(IPS_HOOKS_PATH . 'cleantalk.class.php');
 
-	    session_name('cleantalksession');
-	    if (!isset($_SESSION)) {
-		session_start();
-	    }
-	    if (array_key_exists('formtime', $_SESSION)) {
-		$submit_time = time() - (int) $_SESSION['formtime'];
-	    } else {
-		$submit_time = NULL;
-	    }
-	    $_SESSION['formtime'] = time();
-
 	    $cms_lang = substr($this->lang->local, 0, 2);
 	    $post_info = '';
-	    if(function_exists('json_encode')){
 		$arr = array(
 		    'cms_lang' => $cms_lang,
 		    'REFFERRER' => $_SERVER['HTTP_REFERER'],
 		    'USER_AGENT' => $_SERVER['HTTP_USER_AGENT'],
+            'cookies_enabled' => $this->ctTestCookie(),            
+            'REFFERRER_PREVIOUS' => isset($_COOKIE['ct_prev_referer'])?$_COOKIE['ct_prev_referer']:0,		    
 		);
 		$post_info = json_encode($arr);
-	    }
 	    if($post_info === FALSE) $post_info = '';
 
 	    $ct_url = 'http://moderate.cleantalk.org';
@@ -111,9 +121,9 @@ class cleantalkActionRegister extends (~extends~)
 	    $ct_request->sender_ip = $sender_ip;
 	    $ct_request->sender_email = $sender_email;
 	    $ct_request->sender_info = $post_info;
-	    $ct_request->agent = 'ipboard-19';
+	    $ct_request->agent = 'ipboard-20';
 	    $ct_request->js_on = $this->request['ct_checkjs'] == md5($config_key . '+' . ipsRegistry::$settings['email_in']) ? 1 : 0;
-	    $ct_request->submit_time = $submit_time;
+	    $ct_request->submit_time = isset($_COOKIE['ct_timestamp']) ? time() - intval($_COOKIE['ct_timestamp']) : 0;
 
 	    $ct_result = $ct->isAllowUser($ct_request);
 	
@@ -215,7 +225,28 @@ class cleantalkActionRegister extends (~extends~)
 
 class cleantalkActionSaveForm extends (~extends~)
 {
+    public function ctTestCookie()
+    {
+        $config_key = empty(ipsRegistry::$settings['cleantalk_auth_key']) ? 'enter key' : ipsRegistry::$settings['cleantalk_auth_key'];
 
+        if(isset($_COOKIE['ct_cookies_test'])){
+            
+            $cookie_test = json_decode(stripslashes($_COOKIE['ct_cookies_test']), true);
+            
+            $check_srting = $config_key;
+            foreach($cookie_test['cookies_names'] as $cookie_name){
+                $check_srting .= isset($_COOKIE[$cookie_name]) ? $_COOKIE[$cookie_name] : '';
+            } unset($cokie_name);
+            
+            if($cookie_test['check_value'] == md5($check_srting)){
+                return 1;
+            }else{
+                return 0;
+            }
+        }else{
+            return null;
+        }        
+    }
     public function saveForm($type)
     {
 
@@ -275,27 +306,17 @@ class cleantalkActionSaveForm extends (~extends~)
             }
             
             require_once(IPS_HOOKS_PATH . 'cleantalk.class.php');
-	    session_name('cleantalksession');
-	    if (!isset($_SESSION)) {
-		session_start();
-	    }
-	    if (array_key_exists('formtime', $_SESSION)) {
-		$submit_time = time() - (int) $_SESSION['formtime'];
-	    } else {
-		$submit_time = NULL;
-	    }
-	    $_SESSION['formtime'] = time();
 
 	    $cms_lang = substr($this->lang->local, 0, 2);
 	    $post_info = '';
-	    if(function_exists('json_encode')){
 		$arr = array(
 		    'cms_lang' => $cms_lang,
 		    'REFFERRER' => $_SERVER['HTTP_REFERER'],
 		    'USER_AGENT' => $_SERVER['HTTP_USER_AGENT'],
+            'cookies_enabled' => $this->ctTestCookie(),            
+            'REFFERRER_PREVIOUS' => isset($_COOKIE['ct_prev_referer'])?$_COOKIE['ct_prev_referer']:0,			    
 		);
 		$post_info = json_encode($arr);
-	    }
 	    if($post_info === FALSE) $post_info = '';
 
 	    $ct_url = 'http://moderate.cleantalk.org';
@@ -411,9 +432,9 @@ class cleantalkActionSaveForm extends (~extends~)
 	    $ct_request->sender_ip = $sender_ip;
 	    $ct_request->sender_email = $sender_email;
 	    $ct_request->sender_info = $post_info;
-	    $ct_request->agent = 'ipboard-19';
+	    $ct_request->agent = 'ipboard-20';
             $ct_request->js_on = $this->request['ct_checkjs'] == md5($config_key . '+' . ipsRegistry::$settings['email_in']) ? 1 : 0;
-	    $ct_request->submit_time = $submit_time;
+	    $ct_request->submit_time = isset($_COOKIE['ct_timestamp']) ? time() - intval($_COOKIE['ct_timestamp']) : 0;
 	    $ct_request->message = html_entity_decode(preg_replace("/%u?([0-9a-f]+)/i","&#x\\1;",urldecode($this->request['Post'])),null,'UTF-8'); //rawurldecode($this->request['Post']);
 	    $ct_request->example = $example;
 	    $ct_request->stoplist_check = '';
@@ -523,11 +544,28 @@ class cleantalkActionSaveForm extends (~extends~)
 	$IPBHTML = ''; //test
 	if(ipsRegistry::$settings['cleantalk_enabled']){
 	    $config_key = empty(ipsRegistry::$settings['cleantalk_auth_key']) ? 'enter key' : ipsRegistry::$settings['cleantalk_auth_key'];
-	    session_name('cleantalksession');
-	    if (!isset($_SESSION)) {
-		session_start();
-	    }
-	    $_SESSION['formtime'] = time();
+		// Cookie names to validate
+		$cookie_test_value = array(
+			'cookies_names' => array(),
+			'check_value' => $config_key,
+		);
+        // Pervious referer
+        if(!empty($_SERVER['HTTP_REFERER'])){
+            setcookie('ct_prev_referer', $_SERVER['HTTP_REFERER'], 0, '/');
+            $cookie_test_value['cookies_names'][] = 'ct_prev_referer';
+            $cookie_test_value['check_value'] .= $_SERVER['HTTP_REFERER'];
+        }
+
+        // Submit time
+        $ct_timestamp = time();
+        setcookie('ct_timestamp', $ct_timestamp, 0, '/');
+        $cookie_test_value['cookies_names'][] = 'ct_timestamp';
+        $cookie_test_value['check_value'] .= $ct_timestamp;      			
+
+		// Cookies test
+		$cookie_test_value['check_value'] = md5($cookie_test_value['check_value']);
+		setcookie('ct_cookies_test', json_encode($cookie_test_value), 0, '/');
+
 	    $form_id = 'postingform';
 	    $IPBHTML = "\n";
 	    $IPBHTML .= '<script type="text/javascript">' . "\n";
@@ -563,11 +601,28 @@ class cleantalkActionSaveForm extends (~extends~)
 	$IPBHTML = '';
 	if(ipsRegistry::$settings['cleantalk_enabled']){
 	    $config_key = empty(ipsRegistry::$settings['cleantalk_auth_key']) ? 'enter key' : ipsRegistry::$settings['cleantalk_auth_key'];
-	    session_name('cleantalksession');
-	    if (!isset($_SESSION)) {
-		session_start();
-	    }
-	    $_SESSION['formtime'] = time();
+		// Cookie names to validate
+		$cookie_test_value = array(
+			'cookies_names' => array(),
+			'check_value' => $config_key,
+		);
+        // Pervious referer
+        if(!empty($_SERVER['HTTP_REFERER'])){
+            setcookie('ct_prev_referer', $_SERVER['HTTP_REFERER'], 0, '/');
+            $cookie_test_value['cookies_names'][] = 'ct_prev_referer';
+            $cookie_test_value['check_value'] .= $_SERVER['HTTP_REFERER'];
+        }
+
+        // Submit time
+        $ct_timestamp = time();
+        setcookie('ct_timestamp', $ct_timestamp, 0, '/');
+        $cookie_test_value['cookies_names'][] = 'ct_timestamp';
+        $cookie_test_value['check_value'] .= $ct_timestamp;      			
+
+		// Cookies test
+		$cookie_test_value['check_value'] = md5($cookie_test_value['check_value']);
+		setcookie('ct_cookies_test', json_encode($cookie_test_value), 0, '/');
+
 	    $form_id = 'ips_fastReplyForm';
 	    $IPBHTML = "\n";
 	    $IPBHTML .= '<script type="text/javascript">' . "\n";
@@ -607,7 +662,28 @@ class cleantalkActionSaveForm extends (~extends~)
 
 class cleantalkActionAjaxTopics extends (~extends~)
 {
+    public function ctTestCookie()
+    {
+        $config_key = empty(ipsRegistry::$settings['cleantalk_auth_key']) ? 'enter key' : ipsRegistry::$settings['cleantalk_auth_key'];
 
+        if(isset($_COOKIE['ct_cookies_test'])){
+            
+            $cookie_test = json_decode(stripslashes($_COOKIE['ct_cookies_test']), true);
+            
+            $check_srting = $config_key;
+            foreach($cookie_test['cookies_names'] as $cookie_name){
+                $check_srting .= isset($_COOKIE[$cookie_name]) ? $_COOKIE[$cookie_name] : '';
+            } unset($cokie_name);
+            
+            if($cookie_test['check_value'] == md5($check_srting)){
+                return 1;
+            }else{
+                return 0;
+            }
+        }else{
+            return null;
+        }        
+    }
     public function _reply()
     {
 
@@ -660,27 +736,17 @@ class cleantalkActionAjaxTopics extends (~extends~)
             }
 
             require_once(IPS_HOOKS_PATH . 'cleantalk.class.php');
-	    session_name('cleantalksession');
-	    if (!isset($_SESSION)) {
-		session_start();
-	    }
-	    if (array_key_exists('formtime', $_SESSION)) {
-		$submit_time = time() - (int) $_SESSION['formtime'];
-	    } else {
-		$submit_time = NULL;
-	    }
-	    $_SESSION['formtime'] = time();
 
 	    $cms_lang = substr($this->lang->local, 0, 2);
 	    $post_info = '';
-	    if(function_exists('json_encode')){
 		$arr = array(
 		    'cms_lang' => $cms_lang,
 		    'REFFERRER' => $_SERVER['HTTP_REFERER'],
 		    'USER_AGENT' => $_SERVER['HTTP_USER_AGENT'],
+            'cookies_enabled' => $this->ctTestCookie(),            
+            'REFFERRER_PREVIOUS' => isset($_COOKIE['ct_prev_referer'])?$_COOKIE['ct_prev_referer']:0,		    
 		);
 		$post_info = json_encode($arr);
-	    }
 	    if($post_info === FALSE) $post_info = '';
 
 	    $config_url = 'http://moderate.cleantalk.org';
@@ -796,9 +862,9 @@ class cleantalkActionAjaxTopics extends (~extends~)
 	    $ct_request->sender_ip = $sender_ip;
 	    $ct_request->sender_email = $sender_email;
 	    $ct_request->sender_info = $post_info;
-	    $ct_request->agent = 'ipboard-19';
+	    $ct_request->agent = 'ipboard-20';
 	    $ct_request->js_on = 1;
-	    $ct_request->submit_time = $submit_time;
+	    $ct_request->submit_time = isset($_COOKIE['ct_timestamp']) ? time() - intval($_COOKIE['ct_timestamp']) : 0;
 	    $ct_request->message = html_entity_decode(preg_replace("/%u?([0-9a-f]+)/i","&#x\\1;",urldecode($this->request['Post'])),null,'UTF-8'); //rawurldecode($this->request['Post']);
 	    $ct_request->example = $example;
 	    $ct_request->stoplist_check = '';
@@ -930,11 +996,28 @@ class cleantalkDataHookAddReply
 	$IPBHTML = '';
 	if(ipsRegistry::$settings['cleantalk_enabled']){
 	    $config_key = empty(ipsRegistry::$settings['cleantalk_auth_key']) ? 'enter key' : ipsRegistry::$settings['cleantalk_auth_key'];
-	    session_name('cleantalksession');
-	    if (!isset($_SESSION)) {
-		session_start();
-	    }
-	    $_SESSION['formtime'] = time();
+		// Cookie names to validate
+		$cookie_test_value = array(
+			'cookies_names' => array(),
+			'check_value' => $config_key,
+		);
+        // Pervious referer
+        if(!empty($_SERVER['HTTP_REFERER'])){
+            setcookie('ct_prev_referer', $_SERVER['HTTP_REFERER'], 0, '/');
+            $cookie_test_value['cookies_names'][] = 'ct_prev_referer';
+            $cookie_test_value['check_value'] .= $_SERVER['HTTP_REFERER'];
+        }
+
+        // Submit time
+        $ct_timestamp = time();
+        setcookie('ct_timestamp', $ct_timestamp, 0, '/');
+        $cookie_test_value['cookies_names'][] = 'ct_timestamp';
+        $cookie_test_value['check_value'] .= $ct_timestamp;      			
+
+		// Cookies test
+		$cookie_test_value['check_value'] = md5($cookie_test_value['check_value']);
+		setcookie('ct_cookies_test', json_encode($cookie_test_value), 0, '/');
+
 	    $form_id = 'register';
 	    $IPBHTML = "\n";
 	    $IPBHTML .= '<script type="text/javascript">' . "\n";
@@ -999,7 +1082,7 @@ class cleantalkActionAdminSettings extends (~extends~)
 			$ct_request->sender_email = 'good@cleantalk.org';
 			$ct_request->message = 'This message is a test to check the connection to the CleanTalk servers. ';
 			$ct_request->sender_info = '';
-			$ct_request->agent = 'ipboard-19';
+			$ct_request->agent = 'ipboard-20';
 			$ct_request->js_on = 1;
 			
 			$ct_result = $ct->isAllowMessage($ct_request);
@@ -1017,22 +1100,13 @@ class cleantalkActionAdminSettings extends (~extends~)
 class cleantalkLibrary{
 
     const BASE_CLASS = 'cleantalk.class.php';
-    const JSON_CLASS = 'JSON.php';
 
     public function install(){
-	$file = file_get_contents('http://cleantalk.org/files/base/200/cleantalk.class.php');
+	$file = file_get_contents('https://raw.githubusercontent.com/CleanTalk/ipb-antispam/master/classes/cleantalk.class.php');
 	if($file === FALSE){
 	    return FALSE;
 	}
 	if(file_put_contents(IPS_HOOKS_PATH . self::BASE_CLASS , $file) === FALSE){
-	    return FALSE;
-	}
-
-	$file = file_get_contents('http://cleantalk.org/files/base/JSON.php');
-	if($file === FALSE){
-	    return FALSE;
-	}
-	if(file_put_contents(IPS_HOOKS_PATH . self::JSON_CLASS , $file) === FALSE){
 	    return FALSE;
 	}
 
@@ -1050,7 +1124,6 @@ class cleantalkLibrary{
 
     public function uninstall(){
 	unlink(IPS_HOOKS_PATH . self::BASE_CLASS);
-	unlink(IPS_HOOKS_PATH . self::JSON_CLASS);
 	return TRUE;
     }
 }
