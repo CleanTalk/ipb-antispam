@@ -88,7 +88,7 @@ class cleantalkActionRegister extends (~extends~)
 		$post_info = json_encode($arr);
 	    if($post_info === FALSE) $post_info = '';
 
-	    $ct_url = 'http://moderate.cleantalk.org';
+	    $ct_url = 'https://moderate.cleantalk.org';
 	    $server = $this->DB->buildAndFetch( array( 
                                                     'select' => 'work_url, server_ttl, server_changed',
                                                     'from'   => 'cleantalk_server'
@@ -319,7 +319,7 @@ class cleantalkActionSaveForm extends (~extends~)
 		$post_info = json_encode($arr);
 	    if($post_info === FALSE) $post_info = '';
 
-	    $ct_url = 'http://moderate.cleantalk.org';
+	    $ct_url = 'https://moderate.cleantalk.org';
 	    $server = $this->DB->buildAndFetch( array( 
                                                     'select' => 'work_url, server_ttl, server_changed',
                                                     'from'   => 'cleantalk_server'
@@ -749,7 +749,7 @@ class cleantalkActionAjaxTopics extends (~extends~)
 		$post_info = json_encode($arr);
 	    if($post_info === FALSE) $post_info = '';
 
-	    $config_url = 'http://moderate.cleantalk.org';
+	    $config_url = 'https://moderate.cleantalk.org';
 	    $server = $this->DB->buildAndFetch( array( 
                                                     'select' => 'work_url, server_ttl, server_changed',
                                                     'from'   => 'cleantalk_server'
@@ -1055,7 +1055,7 @@ class cleantalkActionAdminSettings extends (~extends~)
 		if($this->request['do']=='setting_update'&&ipsRegistry::$settings['cleantalk_enabled'])
 		{
 			require_once(IPS_HOOKS_PATH . 'cleantalk.class.php');
-			$ct_url = 'http://moderate.cleantalk.org';
+			$ct_url = 'https://moderate.cleantalk.org';
 			$server = $this->DB->buildAndFetch( array( 
 			                                            'select' => 'work_url, server_ttl, server_changed',
 			                                            'from'   => 'cleantalk_server'
